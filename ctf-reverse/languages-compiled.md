@@ -280,3 +280,127 @@ cargo bloat --release -n 50
 **Key insight:** Rust panic messages are goldmines — they contain source file paths, line numbers, and descriptive error strings even in release builds. Always `strings binary | grep "panicked"` first. Rust's monomorphization means generic functions get duplicated per type — expect many similar-looking functions.
 
 **Detection:** `core::panicking`, `.rustc` section, `/rustc/` paths, `_ZN` mangled symbols with Rust-style module paths.
+
+---
+
+## Swift Binary Reversing
+
+See [platforms.md](platforms.md#swift-binary-reversing) for full Swift reversing guide including demangling, runtime structures, and Ghidra integration. Key quick reference:
+
+```bash
+# Detect Swift binary
+strings binary | grep "swift"
+otool -l binary | grep "swift"
+
+# Demangle Swift symbols
+swift demangle 's14MyApp0A8ClassC10checkInput6resultSbSS_tF'
+# → MyApp.MyAppClass.checkInput(result: String) -> Bool
+
+# Key runtime functions: swift_allocObject, swift_release, swift_once
+# String: small (≤15 bytes inline) or large (heap pointer + length)
+# Protocol witness tables = dynamic dispatch (like vtables)
+```
+
+**Detection:** `__swift5_*` sections in Mach-O, `swift_` runtime symbols, `s` prefix in mangled names.
+
+---
+
+## Kotlin / JVM Binary Reversing
+
+Kotlin compiles to JVM bytecode or native (via Kotlin/Native). Common in Android and server-side CTF.
+
+### JVM Bytecode (Android/Server)
+
+```bash
+# Detect Kotlin
+strings classes.dex | grep "kotlin"
+# Look for: kotlin.Metadata annotation, kotlin/jvm/internal/*
+
+# Decompile
+jadx classes.dex                     # Best for Kotlin bytecode
+cfr classes.jar --kotlin             # CFR with Kotlin mode
+fernflower classes.jar output/       # IntelliJ's decompiler
+
+# Kotlin-specific patterns in decompiled output:
+# - Companion objects: ClassName$Companion
+# - Data classes: copy(), component1(), component2(), toString()
+# - Coroutines: ContinuationImpl, invokeSuspend, state machine
+# - Null checks: Intrinsics.checkNotNull() everywhere
+# - When expression: compiled as tableswitch/lookupswitch
+# - Sealed classes: instanceof checks in chain
+```
+
+**Kotlin coroutines in disassembly:**
+```text
+# Coroutines compile to state machines:
+# invokeSuspend(result) {
+#     switch (this.label) {
+#         case 0: this.label = 1; return suspendFunction();
+#         case 1: processResult(result); return Unit;
+#     }
+# }
+# Each suspend point becomes a state in the switch.
+# Follow the state machine to understand async flow.
+```
+
+### Kotlin/Native
+
+```bash
+# Kotlin/Native produces platform binaries (no JVM)
+# Recognize by: konan, kotlin.native strings
+strings binary | grep "konan"
+
+# Much harder to reverse — no reflection metadata
+# Uses LLVM backend, looks similar to C/C++ in disassembly
+# Key functions: InitRuntime, DeinitRuntime, CreateStablePointer
+# Memory management: automatic reference counting (not GC)
+```
+
+**Detection:** `kotlin.Metadata` annotations (JVM), `konan` strings (Native), `kotlin/` package paths.
+
+---
+
+## C++ Binary Reversing (Quick Reference)
+
+While C++ RE is well-covered by general tools, these patterns are CTF-specific:
+
+### vtable Reconstruction
+
+```text
+# Virtual function tables (vtables):
+# First 8 bytes of object → pointer to vtable
+# vtable entries: [typeinfo_ptr, destructor, method1, method2, ...]
+# In Ghidra: Data → Create Pointer at vtable address
+
+# Identify polymorphic dispatch:
+# mov rax, [rdi]           # Load vtable from this pointer
+# call [rax + 0x18]        # Call 4th virtual method (0x18/8 = 3rd after typeinfo+dtor)
+```
+
+### RTTI (Run-Time Type Information)
+
+```bash
+# If not stripped, RTTI reveals class hierarchy
+strings binary | grep -E "^[0-9]+[A-Z]"   # Mangled type names
+c++filt _ZTI7MyClass                        # → typeinfo for MyClass
+
+# In Ghidra: search for vtable references, follow typeinfo pointer
+# typeinfo struct: {vtable_for_typeinfo, name_string, base_class_ptr}
+```
+
+### Standard Library Patterns
+
+```text
+std::string (libstdc++):
+  SSO (Small String Optimization): inline buffer for ≤15 chars
+  Layout: {char* ptr, size_t size, union{size_t cap, char buf[16]}}
+
+std::vector<T>:
+  {T* begin, T* end, T* capacity_end}
+
+std::map<K,V>:
+  Red-black tree: each node has {left, right, parent, color, key, value}
+
+std::unordered_map<K,V>:
+  Hash table: {bucket_array, size, load_factor_max, ...}
+```
