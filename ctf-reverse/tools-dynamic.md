@@ -473,3 +473,111 @@ StepOver                       # Step over
 4. **Snowman** decompiler plugin for quick pseudo-C
 
 **Key insight:** x64dbg has built-in pattern scanning, hardware breakpoints, and conditional logging. For Windows CTF binaries, it's often faster than IDA/Ghidra for dynamic analysis. Use the **xAnalyzer** plugin for automatic function argument annotation.
+
+---
+
+## Qiling Framework (Cross-Platform Emulation)
+
+Qiling emulates binaries with OS-level support (syscalls, filesystem, registry). Built on Unicorn but adds the OS layer that Unicorn lacks.
+
+### Installation
+
+```bash
+pip install qiling
+# Download rootfs for target OS:
+git clone https://github.com/qilingframework/rootfs
+```
+
+### Basic Usage
+
+```python
+from qiling import Qiling
+from qiling.const import QL_VERBOSE
+
+# Linux ELF emulation
+ql = Qiling(["./binary", "arg1"], "rootfs/x8664_linux",
+            verbose=QL_VERBOSE.DEFAULT)
+ql.run()
+
+# Windows PE emulation (no Windows needed!)
+ql = Qiling(["rootfs/x86_windows/bin/binary.exe"], "rootfs/x86_windows")
+ql.run()
+
+# ARM/MIPS emulation (IoT firmware)
+ql = Qiling(["rootfs/arm_linux/bin/binary"], "rootfs/arm_linux")
+ql.run()
+```
+
+### Anti-Debug Bypass via Emulation
+
+```python
+from qiling import Qiling
+
+ql = Qiling(["./binary"], "rootfs/x8664_linux")
+
+# Hook ptrace syscall — return 0 (success)
+def hook_ptrace(ql, ptrace_request, pid, addr, data):
+    ql.log.info("ptrace bypassed")
+    return 0
+
+ql.os.set_syscall("ptrace", hook_ptrace)
+
+# Hook specific address (e.g., anti-VM check)
+def skip_check(ql):
+    ql.arch.regs.rax = 0  # Force success
+    ql.log.info(f"Skipped check at {ql.arch.regs.rip:#x}")
+
+ql.hook_address(skip_check, 0x401234)
+
+ql.run()
+```
+
+### Input Fuzzing with Qiling
+
+```python
+# Emulate binary with different inputs to find flag
+import string
+from qiling import Qiling
+
+def test_input(candidate):
+    ql = Qiling(["./binary"], "rootfs/x8664_linux",
+                verbose=QL_VERBOSE.DISABLED, stdin=candidate.encode())
+    ql.run()
+    return ql.os.stdout.read()
+
+for ch in string.printable:
+    output = test_input("flag{" + ch)
+    if b"Correct" in output:
+        print(f"Found: {ch}")
+```
+
+**Advantages over GDB/Frida:**
+- No debugger artifacts (bypasses all anti-debug by default)
+- Cross-platform without hardware (ARM, MIPS, RISC-V on x86 host)
+- Scriptable with Python (faster iteration than GDB)
+- Snapshot/restore for brute-forcing
+
+**When to use:** Foreign architecture binaries, IoT firmware, heavy anti-debug, automated testing of many inputs.
+
+---
+
+## Triton (Dynamic Symbolic Execution)
+
+See [tools-advanced.md](tools-advanced.md#triton-dynamic-symbolic-execution) for full Triton reference. Quick usage:
+
+```python
+from triton import *
+
+ctx = TritonContext(ARCH.X86_64)
+
+# Symbolize input buffer
+for i in range(32):
+    ctx.symbolizeMemory(MemoryAccess(0x600000 + i, CPUSIZE.BYTE), f"flag_{i}")
+
+# Process instructions and collect constraints
+# At comparison point, solve for flag
+model = ctx.getModel(ctx.getPathConstraintsAst())
+flag = ''.join(chr(v.getValue()) for _, v in sorted(model.items()))
+```
+
+**Best for:** Single-path symbolic execution, deobfuscation, taint analysis. Faster than angr for linear code paths.
