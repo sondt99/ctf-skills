@@ -1,6 +1,6 @@
 ---
 name: ctf-reverse
-description: Provides reverse engineering techniques for CTF challenges. Use when analyzing binaries, game clients, obfuscated code, esoteric languages, custom VMs, anti-debugging, WASM, .NET, APK (including Flutter/Dart AOT with Blutter), HarmonyOS HAP/ABC, Python bytecode, Go binaries, Rust binaries, Ghidra, GDB, radare2, Frida, angr, or extracting flags from compiled executables.
+description: Provides reverse engineering techniques for CTF challenges. Use when analyzing binaries, game clients, obfuscated code, esoteric languages, custom VMs, anti-debugging, anti-analysis bypass, WASM, .NET, APK (including Flutter/Dart AOT with Blutter), HarmonyOS HAP/ABC, Python bytecode, Go/Rust/Swift/Kotlin binaries, VMProtect/Themida, Ghidra, GDB, radare2, Frida, angr, Qiling, Triton, binary diffing, macOS/iOS Mach-O, embedded firmware, kernel modules, game engines, or extracting flags from compiled executables.
 license: MIT
 compatibility: Requires filesystem-based agent (Claude Code or similar) with bash, Python 3, and internet access for tool installation.
 allowed-tools: Bash Read Write Edit Glob Grep Task WebFetch WebSearch
@@ -15,12 +15,15 @@ Quick reference for RE challenges. For detailed techniques, see supporting files
 ## Additional Resources
 
 - [tools.md](tools.md) - Static analysis tools (GDB, Ghidra, radare2, IDA, Binary Ninja, dogbolt.org, RISC-V with Capstone, Unicorn emulation, Python bytecode, WASM, Android APK, .NET, packed binaries)
-- [tools-dynamic.md](tools-dynamic.md) - Dynamic analysis tools: Frida dynamic instrumentation (hooking, anti-debug bypass, memory scanning, Android/iOS), angr symbolic execution (path exploration, constraints, CFG recovery), lldb (macOS/LLVM debugger), x64dbg (Windows debugger)
+- [tools-dynamic.md](tools-dynamic.md) - Dynamic analysis tools: Frida (hooking, anti-debug bypass, memory scanning, Android/iOS), angr symbolic execution (path exploration, constraints, CFG), lldb (macOS/LLVM debugger), x64dbg (Windows), Qiling (cross-platform emulation with OS support), Triton (dynamic symbolic execution)
+- [tools-advanced.md](tools-advanced.md) - Advanced tools: VMProtect/Themida analysis, binary diffing (BinDiff, Diaphora), deobfuscation frameworks (D-810, GOOMBA, Miasm), Rizin/Cutter, RetDec, advanced GDB (Python scripting, conditional breakpoints, watchpoints, reverse debugging with rr, pwndbg/GEF), advanced Ghidra scripting, patching (Binary Ninja API, LIEF)
+- [anti-analysis.md](anti-analysis.md) - Comprehensive anti-analysis: Linux anti-debug (ptrace, /proc, timing, signals, direct syscalls), Windows anti-debug (PEB, NtQueryInformationProcess, heap flags, TLS callbacks, HW/SW breakpoint detection, exception-based, thread hiding), anti-VM/sandbox (CPUID, MAC, timing, artifacts, resources), anti-DBI (Frida detection/bypass), code integrity/self-hashing, anti-disassembly (opaque predicates, junk bytes), MBA identification/simplification, bypass strategies
 - [patterns.md](patterns.md) - Foundational binary patterns: custom VMs, anti-debugging, nanomites, self-modifying code, XOR ciphers, mixed-mode stagers, LLVM obfuscation, S-box/keystream, SECCOMP/BPF, exception handlers, memory dumps, byte-wise transforms, x86-64 gotchas, signal-based exploration, malware anti-analysis, multi-stage shellcode, timing side-channel, multi-thread anti-debug with decoy + signal handler MBA
 - [patterns-ctf.md](patterns-ctf.md) - Competition-specific patterns (Part 1): hidden emulator opcodes, LD_PRELOAD key extraction, SPN static extraction, image XOR smoothness, byte-at-a-time cipher, mathematical convergence bitmap, Windows PE XOR bitmap OCR, two-stage RC4+VM loaders, GBA ROM meet-in-the-middle, Sprague-Grundy game theory, kernel module maze solving, multi-threaded VM channels, backdoored shared library detection via string diffing
 - [patterns-ctf-2.md](patterns-ctf-2.md) - Competition-specific patterns (Part 2): multi-layer self-decrypting brute-force, embedded ZIP+XOR license, stack string deobfuscation, prefix hash brute-force, CVP/LLL lattice for integer validation, decision tree function obfuscation, GLSL shader VM, GF(2^8) Gaussian elimination, Z3 single-line Python circuit, sliding window popcount, keyboard LED Morse code via ioctl
 - [languages.md](languages.md) - Language/platform-specific: Python bytecode & opcode remapping, Python version-specific bytecode, Pyarmor static unpack, DOS stubs, Unity IL2CPP, HarmonyOS HAP/ABC, Brainfuck/esolangs, UEFI, transpilation to C, code coverage side-channel, OPAL functional reversing, non-bijective substitution, Roblox place file analysis, Godot game asset extraction, Rust serde_json schema recovery, Verilog/hardware RE, Android JNI RegisterNatives, Ruby/Perl polyglot, Electron ASAR extraction + native binary analysis, Node.js npm runtime introspection
-- [languages-compiled.md](languages-compiled.md) - Go binary reversing (GoReSym, goroutines, memory layout, channel ops, embed.FS), Rust binary reversing (demangling, Option/Result, Vec, String/&str, iterators, panic strings)
+- [languages-compiled.md](languages-compiled.md) - Go binary reversing (GoReSym, goroutines, memory layout, channel ops, embed.FS), Rust binary reversing (demangling, Option/Result, Vec, panic strings), Swift binary reversing (demangling, protocol witness tables), Kotlin/JVM (coroutine state machines), C++ (vtable reconstruction, RTTI, STL patterns)
+- [platforms.md](platforms.md) - Platform-specific RE: macOS/iOS (Mach-O, code signing, Objective-C runtime, Swift, dyld, jailbreak bypass), embedded/IoT firmware (binwalk, UART/JTAG/SPI extraction, ARM/MIPS, RTOS), kernel drivers (Linux .ko, eBPF, Windows .sys), game engines (Unreal Engine, Unity, anti-cheat, Lua), automotive CAN bus, RISC-V advanced
 
 ---
 
@@ -30,9 +33,10 @@ Quick reference for RE challenges. For detailed techniques, see supporting files
 2. **Try ltrace/strace** - dynamic analysis often reveals flags without reversing
 3. **Try Frida hooking** - hook strcmp/memcmp to capture expected values without reversing
 4. **Try angr** - symbolic execution solves many flag-checkers automatically
-5. **Map control flow** before modifying execution
-6. **Automate manual processes** via scripting (r2pipe, Frida, angr, Python)
-7. **Validate assumptions** by comparing decompiler outputs
+5. **Try Qiling** - emulate foreign-arch binaries or bypass heavy anti-debug without artifacts
+6. **Map control flow** before modifying execution
+7. **Automate manual processes** via scripting (r2pipe, Frida, angr, Python)
+8. **Validate assumptions** by comparing decompiler outputs (dogbolt.org for side-by-side)
 
 ## Quick Wins (Try First!)
 
@@ -207,13 +211,19 @@ Reference points:
 ## Anti-Debugging Bypass
 
 Common checks:
-- `IsDebuggerPresent()` (Windows)
-- `ptrace(PTRACE_TRACEME)` (Linux)
-- `/proc/self/status` TracerPid
-- Timing checks
+- `IsDebuggerPresent()` / PEB.BeingDebugged / NtQueryInformationProcess (Windows)
+- `ptrace(PTRACE_TRACEME)` / `/proc/self/status` TracerPid (Linux)
+- TLS callbacks (run before main — check PE TLS Directory)
+- Timing checks (`rdtsc`, `clock_gettime`, `GetTickCount`)
+- Hardware breakpoint detection (DR0-DR3 via GetThreadContext)
+- INT3 scanning / code self-hashing (CRC over .text section)
+- Signal-based: SIGTRAP handler, SIGALRM timeout, SIGSEGV for real logic
+- Frida/DBI detection: `/proc/self/maps` scan, port 27042, inline hook checks
 
 Bypass: Set breakpoint at check, modify register to bypass conditional.
 pwntools patch: `elf.asm(elf.symbols.ptrace, 'ret')` to replace function with immediate return. See [patterns.md](patterns.md#pwntools-binary-patching-crypto-cat).
+
+For comprehensive anti-analysis techniques and bypasses (30+ methods with code), see [anti-analysis.md](anti-analysis.md).
 
 ## S-Box / Keystream Patterns
 
@@ -422,3 +432,39 @@ Hook runtime functions without modifying binary. `frida -f ./binary -l hook.js` 
 ## angr Symbolic Execution
 
 Automatic path exploration to find inputs satisfying constraints. Load binary with `angr.Project`, set find/avoid addresses, call `simgr.explore()`. Constrain input to printable ASCII and known prefix for faster solving. Hook expensive functions (crypto, I/O) to prevent path explosion. See [tools-dynamic.md](tools-dynamic.md#angr-symbolic-execution).
+
+## Qiling Emulation
+
+Cross-platform binary emulation with OS-level support (syscalls, filesystem). Emulate Linux/Windows/ARM/MIPS binaries on any host. No debugger artifacts — bypasses all anti-debug by default. Hook syscalls and addresses with Python API. See [tools-dynamic.md](tools-dynamic.md#qiling-framework-cross-platform-emulation).
+
+## VMProtect / Themida Analysis
+
+VMProtect virtualizes code into custom bytecode. Identify VM entry (pushad-like), find handler table (large indirect jump), trace handlers dynamically. For CTF, focus on tracing operations on input rather than full devirtualization. Themida: dump at OEP with ScyllaHide + Scylla. See [tools-advanced.md](tools-advanced.md#vmprotect-analysis).
+
+## Binary Diffing
+
+BinDiff and Diaphora compare two binaries to highlight changes. Essential when challenge provides patched/original versions. Export from IDA/Ghidra, diff to find vulnerability or hidden functionality. See [tools-advanced.md](tools-advanced.md#binary-diffing).
+
+## Advanced GDB (pwndbg, rr)
+
+pwndbg: `context`, `vmmap`, `search -s "flag{"`, `telescope $rsp`. GEF alternative. Reverse debugging with `rr record`/`rr replay` — step backward through execution. Python scripting for brute-force and automated tracing. See [tools-advanced.md](tools-advanced.md#advanced-gdb-techniques).
+
+## macOS / iOS Reversing
+
+Mach-O binaries: `otool -l` for load commands, `class-dump` for Objective-C headers. Swift: `swift demangle` for symbols. iOS apps: decrypt FairPlay DRM with frida-ios-dump, bypass jailbreak detection with Frida hooks. Re-sign patched binaries with `codesign -f -s -`. See [platforms.md](platforms.md#macos--ios-reversing).
+
+## Embedded / IoT Firmware RE
+
+`binwalk -Me firmware.bin` for recursive extraction. Hardware: UART/JTAG/SPI flash for firmware dumps. Filesystems: SquashFS (`unsquashfs`), JFFS2, UBI. Emulate with QEMU: `qemu-arm -L /usr/arm-linux-gnueabihf/ ./binary`. See [platforms.md](platforms.md#embedded--iot-firmware-re).
+
+## Kernel Driver Reversing
+
+Linux `.ko`: find ioctl handler via `file_operations` struct, trace `copy_from_user`/`copy_to_user`. Debug with QEMU+GDB (`-s -S`). eBPF: `bpftool prog dump xlated`. Windows `.sys`: find `DriverEntry` → `IoCreateDevice` → IRP handlers. See [platforms.md](platforms.md#kernel-driver-reversing).
+
+## Game Engine Reversing
+
+Unreal: extract .pak with UnrealPakTool, reverse Blueprint bytecode with FModel. Unity Mono: decompile Assembly-CSharp.dll with dnSpy. Anti-cheat (EAC, BattlEye, VAC): identify system, bypass specific check. Lua games: `luadec`/`unluac` for bytecode. See [platforms.md](platforms.md#game-engine-reversing).
+
+## Swift / Kotlin Binary Reversing
+
+Swift: `swift demangle` symbols, protocol witness tables for dispatch, `__swift5_*` sections. Kotlin/JVM: coroutines compile to state machines in `invokeSuspend`, `jadx` with Kotlin mode for best decompilation. Kotlin/Native: LLVM backend, looks like C++ in disassembly. See [languages-compiled.md](languages-compiled.md#swift-binary-reversing).
